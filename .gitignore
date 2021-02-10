@@ -1,6 +1,7 @@
 *.jpg
 *.jpeg
 *.ppm
+common/
 python/
 sampleAlgorithmSelector/
 sampleCharRNN/
