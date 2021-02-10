@@ -19,6 +19,7 @@ If you are looking to optimize Cnn performance through Tensorrt (C ++ API) on Je
 3. Run ```/inferUffModel$ make```. 
 
 4. You must first have a .uff network model. Use the converter
+```
 python3 /usr/lib/python3.6/dist-packages/uff/bin/convert_to_uff.py \
   /frozen_inference_graph.pb -O NMS \
   -p /config.py \
