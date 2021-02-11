@@ -1,5 +1,5 @@
 # Inference-Uff-model-Jetson-Tx2
-API provides serialization / deserialization and inference of uff models using Tensorrt (c++) methods on JetsonTx2.Achievable fps 14-18!
+API provides serialization / deserialization and inference of uff models using Tensorrt (c++) methods on JetsonTx2. Achievable fps 14-18!
 
 ### Foreword
 If you are looking to optimize Cnn performance through Tensorrt (C ++ API) on JetsonTx2, then this tutorial may help you.
