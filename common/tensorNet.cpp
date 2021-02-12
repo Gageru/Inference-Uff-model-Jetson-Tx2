@@ -20,5 +20,5 @@ void Profiler::printLayerTimes(const int TIMING_ITERATIONS)
 		printf("%-40.40s %4.3fms\n", mProfile[i].first.c_str(), mProfile[i].second / TIMING_ITERATIONS);
 		totalTime += mProfile[i].second;
 	}
-	printf("Time over all layers: %4.3f\n", totalTime / TIMING_ITERATIONS);
+	printf("Tiime over all layers: %4.3f\n", totalTime / TIMING_ITERATIONS);
 }
