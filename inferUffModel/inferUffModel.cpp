@@ -1,21 +1,11 @@
-#include <opencv2/highgui.hpp>
-#include <opencv2/opencv.hpp>
-#include <opencv2/core/mat.hpp>
-
-#include <fstream>
-#include <sstream>
-#include <iostream>
 #include <time.h>
-#include <cuda_runtime.h>
 #include <cuda.h>
-#include <vector>
-#include <string>
 
 #include "NvInfer.h"
 #include "NvCaffeParser.h"
 #include "NvUffParser.h"
 
-#include "BatchStream.h"
+#include "minorFunctions.h"
 #include "buffers.h"
 #include "common.h"
 #include "logger.h"
@@ -23,11 +13,11 @@
 using namespace nvinfer1;
 using namespace nvcaffeparser1;
 using namespace nvuffparser;
+using namespace minorapi;
 using namespace cv;
 using namespace std;
 
-static const uint32_t BATCH_SIZE = 1;
-stringstream gieModelStream;
+#define UNLOAD_MODEL 0
 
 bool mEnableFP16=false;
 bool mOverride16=false;
@@ -38,7 +28,8 @@ const char* OUTPUT2 = "";
 const char* OUTPUT3 = "";
 const char* OUTPUT_BLOB_NAME = "NMS";
 
-const int 	INPUT_C = 3,
+const int 	BATCH_SIZE = 1,
+			INPUT_C = 3,
 			INPUT_H = 300,
 			INPUT_W = 300,
 			N =1;
@@ -46,7 +37,7 @@ const int 	INPUT_C = 3,
 static constexpr int OUTPUT_CLS_SIZE = 91;
 
 DetectionOutputParameters detectionOutputParam{true, false, 0, OUTPUT_CLS_SIZE, 100, 100, 0.5, 0.6, CodeTypeSSD::TF_CENTER, {0, 2, 1}, true, true};
-
+	
 class Logger : public ILogger
 {
 	void log(Severity severity, const char* msg) override
@@ -100,34 +91,6 @@ inline bool cudaAllocMapped( void** cpuPtr, void** gpuPtr, size_t size )
 
 }
 
-bool loadImageBGR( Mat frame, vector<float> &data, const float3& mean )
-{
-	const uint32_t imgWidth  = 300;
-	const uint32_t imgHeight = 300;
-	const uint32_t imgPixels = imgWidth * imgHeight;
-	
-	for( uint32_t y=0; y < imgHeight; y++ )
-	{
-		for( uint32_t x=0; x < imgWidth; x++ )
-		{
-			const float mul = 2.0 / 255.0;
-            Vec3b intensity = frame.at<Vec3b>(y,x);
-			//cout << (float)intensity.val[0]  <<" , "<< (float)intensity.val[1]<<" , "<< (float)intensity.val[2]<<endl;
-			const float3 px = make_float3(((float)intensity.val[0] - mean.x) * mul,
-										  ((float)intensity.val[1] - mean.y) * mul,
-										  ((float)intensity.val[2] - mean.z) * mul );
-
-            // imgPixels * 0 + y * imgWidth + x
-			// note:  caffe/GIE is band-sequential (as opposed to the typical Band Interleaved by Pixel)
-			data[imgPixels * 0 + y * imgWidth + x] = px.x;
-			data[imgPixels * 1 + y * imgWidth + x] = px.y;
-			data[imgPixels * 2 + y * imgWidth + x] = px.z;
-		}
-	}
-	return true;
-
-}
-
 DimsCHW getTensorDims(ICudaEngine* engine ,const char* name)
 {
     for (int b = 0; b < engine->getNbBindings(); b++) {
@@ -148,8 +111,18 @@ float* allocateMemory(DimsCHW dims, char* info)
     return ptr;
 }
 
-void SaveEngine(const nvinfer1::IHostMemory& trtModelStream, const string& engine_filepath)
+bool SaveEngine(const ICudaEngine* engine, const string& engine_filepath)
 {
+	cout << "~~~~~~~~Serializing model~~~~~~~~" << endl;
+
+    nvinfer1::IHostMemory* serMem = engine->serialize();
+
+	if( !serMem )
+	{
+		printf("failed to serialize CUDA engine\n");
+		return false;
+	}
+	
     ofstream file;
 
     file.open(engine_filepath, ios::binary | ios::out);
@@ -157,12 +130,18 @@ void SaveEngine(const nvinfer1::IHostMemory& trtModelStream, const string& engin
     if(!file.is_open())
     {
         cout << "read create engine file" << engine_filepath <<" failed" << endl;
-        return;
+        return false;
     }
-    file.write((const char*)trtModelStream.data(), trtModelStream.size());
+    cout << "Printing size of bytes allocated [" << serMem->size()<< ']' << endl;
+    
+    file.write((const char*)serMem->data(), serMem->size());
     file.close();
+    
+    serMem->destroy();
+    
+    return 1;
 
-};
+}
 
 ICudaEngine* LoadEngine(IRuntime& runtime, const string& engine_filepath)
 {
@@ -259,8 +238,7 @@ void doInference(IExecutionContext& context, float* inputData, float* detectionO
     cudaFree(buffers[outputIndex1]);
 }
 
-bool uffToTRTModel ( const char* uffmodel, 
-					 const char* engine_filepath)
+ICudaEngine* uffToTRTModel ( const char* uffmodel)
 {
 
 	IBuilder* builder = createInferBuilder(gLogger);
@@ -282,203 +260,121 @@ bool uffToTRTModel ( const char* uffmodel,
 	ICudaEngine* engine = builder->buildCudaEngine(*network);
     assert(engine);
 
-    gieModelStream.seekg(0, gieModelStream.beg);
-
 	network->destroy();
  	parser->destroy();
-
-	cout << "serializing" << endl;
-
-    nvinfer1::IHostMemory* serMem = engine->serialize();
-
-	if( !serMem )
-	{
-		printf("failed to serialize CUDA engine\n");
-		return false;
-	}
-
-	gieModelStream.write((const char*)serMem->data(), serMem->size());
-	cout << "printing size of bytes allocated \t" << (serMem->size())<< endl;
-
-	SaveEngine(*serMem, engine_filepath);
-	
-	engine->destroy();
-    builder->destroy();
+	builder->destroy();
     
-	return true;
-}
-
-string get_tegra_pipeline(int width, int height, int fps) {
-    return "nvarguscamerasrc ! video/x-raw(memory:NVMM), width=(int)" + to_string(width) + ", height=(int)" +
-           to_string(height) + ", format=(string)NV12, framerate=(fraction)" + to_string(fps) +
-           "/1 ! nvvidconv ! video/x-raw, flip-method=2, format=(string)BGRx ! videoconvert ! video/x-raw, format=(string)BGR ! appsink";
-
-}
-
-string locateFile(const string& input)
-{
-    vector<string> dirs{"data/ssd/",
-                                  "data/ssd/VOC2007/",
-                                  "/home/jetson-tx2/tensorrt/samples/",
-                                  "data/samples/ssd/",
-                                  "data/int8_samples/ssd/",
-                                  "int8/ssd/",
-                                  "data/samples/ssd/VOC2007/",
-                                  "data/samples/ssd/VOC2007/PPMImages/"};
-    return locateFile(input, dirs);
-}
-
-vector<string> classes = {};
-
-void getClasses(string label_map) {
-
-	ifstream file(label_map, ios::in);
-	
-	char buf[256], cuf[256];
-	string name = "";
-	string text;
-	int begin_pos;
-	int end_pos;
-
-	if (!file)
-	{
-		cerr << "File could not be opened" << endl;
-		system("pause");
-		exit(1);
-	}
-
-	while (!file.eof())
-	{
-		file.getline(buf, sizeof(buf));
-		text = buf;
-		classes.push_back(text);
-		text.clear();
-	}
-	cout << "Label map :" << endl;
-	for (int i = 0; i < classes.size(); i++) {
-		cout << to_string(i+1) + ") " << classes[i] << endl;
-	}
-}
-
-void drawPred(float classId, float conf, int left, int top, int right, int bottom, Mat& frame)
-{
-	rectangle(frame, Point(left, top - 13), Point(right, bottom), Scalar(0, 255, 0));
-
-	std::string label = format("%.2f %s", conf, classes[int(classId - 1)].c_str());
-	int baseLine;
-	Size labelSize = getTextSize(label, FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
-
-	top = max(top, labelSize.height);
-	rectangle(frame, Point(left, top - labelSize.height),
-		Point(left + labelSize.width, top + baseLine), Scalar::all(255), FILLED);
-	putText(frame, label, Point(left, top), FONT_HERSHEY_SIMPLEX, 0.5, Scalar());
+	return engine;
 }
 
 int main(int argc, char** argv)
 {
-	/*const char* uffmodel = "/home/jetson-tx2/buildOpenCVTX2/Examples/tensorflow-coco/ssd_inception_v2_coco_2017_11_17/sample_ssd_relu6.uff";
-	const char* engine_filepath = "/home/jetson-tx2/buildOpenCVTX2/Examples/tensorflow-coco/ssd_inception_v2_coco_2017_11_17/sample_ssd_relu6.engine";
-	if (!uffToTRTModel(uffmodel, engine_filepath))
-	{
-		printf("error in model serialization\n");
-		return 0;
-	}*/
-	
-	string label_map = "/home/jetson-tx2/buildOpenCVTX2/Examples/tensorflow-coco/ssd_coco_labels.txt";
-	getClasses(label_map);
-	
-    string engine_filepath = "/home/jetson-tx2/buildOpenCVTX2/Examples/tensorflow-coco/ssd_inception_v2_coco_2017_11_17/sample_ssd_relu6.engine";
-    nvinfer1::IRuntime* infer = createInferRuntime(gLogger);  
-
-    ICudaEngine* engine = LoadEngine(*infer, engine_filepath); 
-
-	IExecutionContext *context = engine->createExecutionContext();
-	assert(context != nullptr);
-	
-    DimsCHW dimsData = getTensorDims(engine, INPUT_BLOB_NAME);
-    DimsCHW dimsOut  = getTensorDims(engine, OUTPUT_BLOB_NAME);
-
-    cout << "INPUT Tensor Shape is: C: "  <<dimsData.c()<< "  H: "<<dimsData.h()<<"  W:  "<<dimsData.w()<< endl;
-    cout << "OUTPUT Tensor Shape is: C: "<<dimsOut.c()<<"  H: "<< dimsOut.h()<<"  W: "<<dimsOut.w()<< endl;
-
-    //float* data    = allocateMemory( dimsData , (char*)"Input");
-    //float* output  = allocateMemory( dimsOut  , (char*)"NMS");
-    
-    //frame = imread("/home/jetson-tx2/tensorrt/samples/briKuJEOCDc.jpg" , IMREAD_COLOR);
-    Mat frame;
-    string pipeline = get_tegra_pipeline(1920, 1080, 30);
-	VideoCapture cap(pipeline, cv::CAP_GSTREAMER);
-	
-    const uint32_t imgWidth  = 300;
-	const uint32_t imgHeight = 300;;
-	const size_t size = imgWidth * imgHeight * sizeof(float3);
-	
-	time_t timeBegin = time(0);
-	int fps;
-	int count = 0;
-	int tick = 0;
-	
-	while(1)
-	{
-		count++;
-		cap.read(frame);
-		Mat frame_post = frame.clone();
-		resize(frame, frame, Size(300,300));
-		//cvtColor(frame, frame, COLOR_BGRA2BGR);
-		vector<float> data(size);
+	#if UNLOAD_MODEL == 1
+		const char* uffmodel = "/home/jetson-tx2/buildOpenCVTX2/Examples/tensorflow-coco/ssd_inception_v2_coco_2017_11_17/sample_ssd_relu6.uff";
+		const char* engine_filepath = "/home/jetson-tx2/buildOpenCVTX2/Examples/tensorflow-coco/ssd_inception_v2_coco_2017_11_17/sample_ssd_relu6.engine";
 		
-		if( !loadImageBGR(frame, data, make_float3(104.0f,177.0f,123.0f)))
-        {
-            printf("failed to load image '%s'\n", "Image");
-            return 0;
-        }
+		ICudaEngine* engine = uffToTRTModel(uffmodel);
+		SaveEngine(engine, engine_filepath);
 		
-		vector<float> detectionOut(N * detectionOutputParam.keepTopK * 7);
-		vector<int> keepCount(N);
+		engine->destroy();
+	#else
+		vector<string> classes = {};
+		string label_map = "/home/jetson-tx2/buildOpenCVTX2/Examples/tensorflow-coco/ssd_coco_labels.txt";
+		string engine_filepath = "/home/jetson-tx2/buildOpenCVTX2/Examples/tensorflow-coco/ssd_inception_v2_coco_2017_11_17/sample_ssd_relu6.engine";
 		
-		doInference(*context, &data[0], &detectionOut[0], &keepCount[0], N);
-		cout<<"//--------~---------//"<<endl;
-		for (int p = 0; p < N; ++p)
+		getClasses(label_map, classes);
+			
+		nvinfer1::IRuntime* infer = createInferRuntime(gLogger);  
+
+		ICudaEngine* engine = LoadEngine(*infer, engine_filepath); 
+
+		IExecutionContext *context = engine->createExecutionContext();
+		assert(context != nullptr);
+		
+		DimsCHW dimsData = getTensorDims(engine, INPUT_BLOB_NAME);
+		DimsCHW dimsOut  = getTensorDims(engine, OUTPUT_BLOB_NAME);
+
+		cout << "INPUT Tensor Shape is: C: "  <<dimsData.c()<< "  H: "<<dimsData.h()<<"  W:  "<<dimsData.w()<< endl;
+		cout << "OUTPUT Tensor Shape is: C: "<<dimsOut.c()<<"  H: "<< dimsOut.h()<<"  W: "<<dimsOut.w()<< endl;
+
+		float* data    = allocateMemory( dimsData , (char*)"Input");
+		float* output  = allocateMemory( dimsOut  , (char*)"NMS");
+		
+		//frame = imread("/home/jetson-tx2/tensorrt/samples/briKuJEOCDc.jpg" , IMREAD_COLOR);
+		Mat frame;
+		string pipeline = get_tegra_pipeline(1920, 1080, 30);
+		VideoCapture cap(pipeline, cv::CAP_GSTREAMER);
+		
+		const uint32_t imgWidth  = 300;
+		const uint32_t imgHeight = 300;;
+		const size_t size = imgWidth * imgHeight * sizeof(float3);
+		
+		time_t timeBegin = time(0);
+		int fps;
+		int count = 0;
+		int tick = 0;
+		
+		while(1)
 		{
-			for (int i = 0; i < keepCount[p]; ++i)
+			count++;
+			cap.read(frame);
+			Mat frame_post = frame.clone();
+			resize(frame, frame, Size(300,300));
+			//cvtColor(frame, frame, COLOR_BGRA2BGR);
+			vector<float> data(size);
+			
+			if( !loadImageBGR(frame, data, make_float3(104.0f,177.0f,123.0f)))
 			{
-				float* det = &detectionOut[0] + (p * detectionOutputParam.keepTopK + i) * 7;
-				if (det[2] >= 0.4f) 
+				printf("failed to load image '%s'\n", "Image");
+				return 0;
+			}
+			
+			vector<float> detectionOut(N * detectionOutputParam.keepTopK * 7);
+			vector<int> keepCount(N);
+			
+			doInference(*context, &data[0], &detectionOut[0], &keepCount[0], N);
+			cout<<"//--------~---------//"<<endl;
+			for (int p = 0; p < N; ++p)
+			{
+				for (int i = 0; i < keepCount[p]; ++i)
 				{
-					cout << "Detected " << det[1]
-							 << " with confidence " << det[2] * 100.f << " and coordinates ("
-							 << det[3] * INPUT_W << "," << det[4] * INPUT_H << ")"
-							 << ",(" << det[5] * INPUT_W << "," << det[6] * INPUT_H << ")."<< endl;
-					float classIndex = det[1];
-					float confidence = det[2];
-					float xmin = det[3];
-					float ymin = det[4];
-					float xmax = det[5];
-					float ymax = det[6];
-					int x1 = static_cast<int>(xmin * frame.cols) * 1920.0 / 300.0;
-					int y1 = static_cast<int>(ymin * frame.rows) * 1080.0 / 300.0;
-					int x2 = static_cast<int>(xmax * frame.cols) * 1920.0 / 300.0;
-					int y2 = static_cast<int>(ymax * frame.rows) * 1080.0 / 300.0;
-					cout << classIndex << "; " << confidence << "; "  << x1 << "; " << y1 << "; " << x2<< "; " << y2 << endl;
-					drawPred(classIndex, confidence, x1, y1, x2, y2, frame_post);
-				}	
+					float* det = &detectionOut[0] + (p * detectionOutputParam.keepTopK + i) * 7;
+					if (det[2] >= 0.4f) 
+					{
+						cout << "Detected " << det[1]
+								 << " with confidence " << det[2] * 100.f << " and coordinates ("
+								 << det[3] * INPUT_W << "," << det[4] * INPUT_H << ")"
+								 << ",(" << det[5] * INPUT_W << "," << det[6] * INPUT_H << ")."<< endl;
+						float classIndex = det[1];
+						float confidence = det[2];
+						float xmin = det[3];
+						float ymin = det[4];
+						float xmax = det[5];
+						float ymax = det[6];
+						int x1 = static_cast<int>(xmin * frame.cols) * 1920.0 / 300.0;
+						int y1 = static_cast<int>(ymin * frame.rows) * 1080.0 / 300.0;
+						int x2 = static_cast<int>(xmax * frame.cols) * 1920.0 / 300.0;
+						int y2 = static_cast<int>(ymax * frame.rows) * 1080.0 / 300.0;
+						cout << classIndex << "; " << confidence << "; "  << x1 << "; " << y1 << "; " << x2<< "; " << y2 << endl;
+						drawPred(classes, classIndex, confidence, x1, y1, x2, y2, frame_post);
+					}	
+				}
 			}
+			putText(frame_post,to_string(fps) + " FPS", Point(5, 15), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 255, 0));
+			imshow("mobileNet",frame_post);
+			
+			time_t timeNow = time(0) - timeBegin;
+				if (timeNow - tick >= 1)
+				{
+					tick++;
+					fps = count;
+					count = 0;
+				}
+			waitKey(1);
 		}
-		putText(frame_post,to_string(fps) + " FPS", Point(5, 15), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 255, 0));
-		imshow("mobileNet",frame_post);
 		
-		time_t timeNow = time(0) - timeBegin;
-			if (timeNow - tick >= 1)
-			{
-				tick++;
-				fps = count;
-				count = 0;
-			}
-		waitKey(1);
-	}
-	
-    engine->destroy();
-    infer->destroy();
-    //
+		engine->destroy();
+		infer->destroy();
+	#endif
     return 0;
 }
