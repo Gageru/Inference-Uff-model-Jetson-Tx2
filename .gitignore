@@ -1,7 +1,8 @@
 *.jpg
 *.jpeg
 *.ppm
-common/
+common/*.cpp
+common/*.h
 !common/tensorNet.cpp
 !common/tensorNet.h
 !common/minorFunctions.cpp
