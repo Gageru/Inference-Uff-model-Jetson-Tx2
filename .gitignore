@@ -1,6 +1,11 @@
 *.jpg
 *.jpeg
 *.ppm
+common/*
+common/tensorNet.cpp
+common/tensorNet.h
+common/minorFunctions.cpp
+common/minorFunctions.h
 python/
 sampleAlgorithmSelector/
 sampleCharRNN/
