@@ -103,5 +103,34 @@ namespace minorapi
 		
 	return true;
 	}
-
+	
+	Timer::Timer()
+		:fps(0), count(0), tick(0) 
+	{
+	}
+	
+	void Timer::startTime()
+	{
+		timeBegin = time(0);
+	}
+	
+	void Timer::stopTime()
+	{
+		count++;
+		timeNow = time(0) - timeBegin;
+		if (timeNow - tick >= 1)
+		{
+			tick++;
+			fps = count;
+			count = 0;
+		}
+	}
+	
+	int Timer::getFPS()
+	{
+		return fps;
+	}
 }
+
+
+

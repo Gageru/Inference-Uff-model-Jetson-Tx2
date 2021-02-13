@@ -47,39 +47,40 @@ public:
 	
 	~TensorNet();
 	
-	float* allocateMemory(nvinfer1::DimsCHW dims, char* info);//
+	float* allocateMemory(nvinfer1::DimsCHW dims, char* info);
 	
-	void uffToTRTModel ( const char* uffmodel);//
+	void uffToTRTModel ( const char* uffmodel);
 	
-	DimsCHW getTensorDims(const char* name);//
+	DimsCHW getTensorDims(const char* name);
 	
-	inline bool cudaAllocMapped( void** cpuPtr, void** gpuPtr, size_t size);//
+	inline bool cudaAllocMapped( void** cpuPtr, void** gpuPtr, size_t size);
 	
-	bool SaveEngine(const std::string& engine_filepath);//
+	bool SaveEngine(const std::string& engine_filepath);
     
-    bool LoadEngine(const std::string& engine_filepath);//
+    bool LoadEngine(const std::string& engine_filepath);
     
     std::vector<std::pair<int64_t, nvinfer1::DataType>>
-	calculateBindingBufferSizes(const ICudaEngine& engine, int nbBindings, int batchSize);//
+	calculateBindingBufferSizes(const ICudaEngine& engine, int nbBindings, int batchSize);
 	
 	void doInference(DetectionOutputParameters* detOutParam, float* inputData, float* detectionOut, int* keepCount, int batchSize);
 
 private:
 
-    IHostMemory *gieModelStream;
+	Logger gLogger;
+    Profiler gProfiler;
+    
     IRuntime* infer;
     ICudaEngine* engine;
 	IExecutionContext *context;
+	IHostMemory *gieModelStream;
 
-    Logger gLogger;
-    Profiler gProfiler;
-    
     const int N,
 			  INPUT_C,
 			  INPUT_H,
 			  INPUT_W,
 			  OUTPUT_CLS_SIZE;
+			  
 	const char* INPUT_BLOB_NAME;
-	const char* OUTPUT_BLOB_NAME;
+	const char*	OUTPUT_BLOB_NAME;
 };
 #endif

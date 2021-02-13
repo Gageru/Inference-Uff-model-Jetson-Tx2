@@ -1,15 +1,5 @@
-#include <time.h>
-#include <cuda.h>
-
-#include "NvInfer.h"
-#include "NvCaffeParser.h"
-#include "NvUffParser.h"
-
 #include "minorFunctions.h"
 #include "tensorNet.h"
-#include "buffers.h"
-#include "common.h"
-#include "logger.h"
 
 using namespace nvinfer1;
 using namespace nvcaffeparser1;
@@ -20,27 +10,25 @@ using namespace std;
 
 #define UNLOAD_MODEL 0
 
-//bool mEnableFP16=false;
-//bool mOverride16=false;
-
 int N = 1,
 	INPUT_C = 3,
 	INPUT_H = 300,
 	INPUT_W = 300;
 				
-const char* INPUT_BLOB_NAME = "Input";
+
 char* OUTPUT1 = "mbox_conf_softmax";
 char* OUTPUT2 = "";
 char* OUTPUT3 = "";
+const char* INPUT_BLOB_NAME = "Input";
 const char* OUTPUT_BLOB_NAME = "NMS";
 	
 int OUTPUT_CLS_SIZE = 91;
 
-	DetectionOutputParameters detectionOutputParam{true, false, 
-												   0, OUTPUT_CLS_SIZE,
-												   100, 100, 0.5, 0.6,
-												   CodeTypeSSD::TF_CENTER, 
-												   {0, 2, 1}, true, true};
+DetectionOutputParameters detectionOutputParam{true, false,
+											   0, OUTPUT_CLS_SIZE,
+											   100, 100, 0.5, 0.6,
+											   CodeTypeSSD::TF_CENTER, 
+											   {0, 2, 1}, true, true};
 												   
 int main(int argc, char** argv)
 {
@@ -58,7 +46,6 @@ int main(int argc, char** argv)
 		
 		network.uffToTRTModel(uffmodel);
 		network.SaveEngine(engine_filepath);
-		
 	#else
 		vector<string> classes = {};
 		string label_map = "/home/jetson-tx2/buildOpenCVTX2/Examples/tensorflow-coco/ssd_coco_labels.txt";
@@ -86,14 +73,11 @@ int main(int argc, char** argv)
 		const uint32_t imgHeight = 300;;
 		const size_t size = imgWidth * imgHeight * sizeof(float3);
 		
-		time_t timeBegin = time(0);
-		int fps;
-		int count = 0;
-		int tick = 0;
+		Timer timer;
+		timer.startTime();
 		
 		while(1)
 		{
-			count++;
 			cap.read(frame);
 			Mat frame_post = frame.clone();
 			resize(frame, frame, Size(300,300));
@@ -137,16 +121,11 @@ int main(int argc, char** argv)
 					}	
 				}
 			}
-			putText(frame_post,to_string(fps) + " FPS", Point(5, 15), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 255, 0));
+			putText(frame_post,to_string(timer.getFPS()) + " FPS", Point(5, 15), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 255, 0));
 			imshow("mobileNet",frame_post);
 			
-			time_t timeNow = time(0) - timeBegin;
-				if (timeNow - tick >= 1)
-				{
-					tick++;
-					fps = count;
-					count = 0;
-				}
+			timer.stopTime();
+			
 			waitKey(1);
 		}
 	#endif

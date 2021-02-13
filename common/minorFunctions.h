@@ -5,6 +5,7 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/core/mat.hpp>
 #include <cuda_runtime.h>
+#include <time.h>
 
 #include <fstream>
 #include <sstream>
@@ -26,5 +27,23 @@ namespace minorapi
 													 cv::Mat& frame);
 	 
 	bool loadImageBGR(cv::Mat frame, std::vector<float> &data, const float3& mean);
+	
+	class Timer
+	{
+	public:
+		Timer();
+		
+		void startTime();
+		void stopTime();
+		
+		int getFPS();
+		
+	private:
+		int fps;
+		int count;
+		int tick;
+		time_t timeNow;
+		time_t timeBegin;
+	};
 }
 #endif
