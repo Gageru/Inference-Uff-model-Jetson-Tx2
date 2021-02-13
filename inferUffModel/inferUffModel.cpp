@@ -25,20 +25,20 @@ const char* OUTPUT_BLOB_NAME = "NMS";
 int OUTPUT_CLS_SIZE = 91;
 
 DetectionOutputParameters detectionOutputParam{true, false,
-											   0, OUTPUT_CLS_SIZE,
-											   100, 100, 0.5, 0.6,
-											   CodeTypeSSD::TF_CENTER, 
-											   {0, 2, 1}, true, true};
+					       0, OUTPUT_CLS_SIZE,
+					       100, 100, 0.5, 0.6,
+					       CodeTypeSSD::TF_CENTER, 
+				               {0, 2, 1}, true, true};
 												   
 int main(int argc, char** argv)
 {
 	TensorNet network(N,
-					  INPUT_C,
-					  INPUT_H,
-					  INPUT_W,
-					  OUTPUT_CLS_SIZE,
-					  INPUT_BLOB_NAME,
-					  OUTPUT_BLOB_NAME);
+			  INPUT_C,
+			  INPUT_H,
+			  INPUT_W,
+			  OUTPUT_CLS_SIZE,
+			  INPUT_BLOB_NAME,
+			  OUTPUT_BLOB_NAME);
  
 	#if UNLOAD_MODEL == 1
 		const char* uffmodel = "/home/jetson-tx2/buildOpenCVTX2/Examples/tensorflow-coco/ssd_inception_v2_coco_2017_11_17/sample_ssd_relu6.uff";
