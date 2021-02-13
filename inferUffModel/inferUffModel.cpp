@@ -11,9 +11,9 @@ using namespace std;
 #define UNLOAD_MODEL 0
 
 int N = 1,
-	INPUT_C = 3,
-	INPUT_H = 300,
-	INPUT_W = 300;
+    INPUT_C = 3,
+    INPUT_H = 300,
+    INPUT_W = 300;
 				
 
 char* OUTPUT1 = "mbox_conf_softmax";
