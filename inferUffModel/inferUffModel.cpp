@@ -6,6 +6,7 @@
 #include "NvUffParser.h"
 
 #include "minorFunctions.h"
+#include "tensorNet.h"
 #include "buffers.h"
 #include "common.h"
 #include "logger.h"
@@ -19,264 +20,45 @@ using namespace std;
 
 #define UNLOAD_MODEL 0
 
-bool mEnableFP16=false;
-bool mOverride16=false;
+//bool mEnableFP16=false;
+//bool mOverride16=false;
 
+int N = 1,
+	INPUT_C = 3,
+	INPUT_H = 300,
+	INPUT_W = 300;
+				
 const char* INPUT_BLOB_NAME = "Input";
-const char* OUTPUT1 = "mbox_conf_softmax";
-const char* OUTPUT2 = "";
-const char* OUTPUT3 = "";
+char* OUTPUT1 = "mbox_conf_softmax";
+char* OUTPUT2 = "";
+char* OUTPUT3 = "";
 const char* OUTPUT_BLOB_NAME = "NMS";
-
-const int 	BATCH_SIZE = 1,
-			INPUT_C = 3,
-			INPUT_H = 300,
-			INPUT_W = 300,
-			N =1;
-			  
-static constexpr int OUTPUT_CLS_SIZE = 91;
-
-DetectionOutputParameters detectionOutputParam{true, false, 0, OUTPUT_CLS_SIZE, 100, 100, 0.5, 0.6, CodeTypeSSD::TF_CENTER, {0, 2, 1}, true, true};
 	
-class Logger : public ILogger
-{
-	void log(Severity severity, const char* msg) override
-	{
-			cout << msg << endl;
-	}
-}gLogger;
+int OUTPUT_CLS_SIZE = 91;
 
- struct Profiler : public IProfiler
-{
-    typedef pair<string, float> Record;
-    vector<Record> mProfile;
-
-    virtual void reportLayerTime(const char* layerName, float ms)
-    {
-        auto record = find_if(mProfile.begin(), mProfile.end(), [&](const Record& r){ return r.first == layerName; });
-        if (record == mProfile.end()) mProfile.push_back(make_pair(layerName, ms));
-        else record->second += ms;
-    }
-
-    void printLayerTimes(const int TIMING_ITERATIONS)
-    {
-
-        float totalTime = 0;
-        for (size_t i = 0; i < mProfile.size(); i++)
-        {
-            printf("%-40.40s %4.3fms\n", mProfile[i].first.c_str(), mProfile[i].second / TIMING_ITERATIONS);
-            totalTime += mProfile[i].second;
-        }
-        printf("Time over all layers: %4.3f\n", totalTime / TIMING_ITERATIONS);
-    }
-
-}gProfiler;
-
-inline bool cudaAllocMapped( void** cpuPtr, void** gpuPtr, size_t size )
-{
-	if( !cpuPtr || !gpuPtr || size == 0 )
-		return false;
-
-	//CUDA(cudaSetDeviceFlags(cudaDeviceMapHost));
-
-	if( cudaHostAlloc(cpuPtr, size, cudaHostAllocMapped) )
-		return false;
-		
-	if( cudaHostGetDevicePointer(gpuPtr, *cpuPtr, 0) )
-		return false;
-		
-	memset(*cpuPtr, 0, size);
-	printf("[cuda] cudaAllocMapped %zu bytes, CPU %p GPU %p\n", size, *cpuPtr, *gpuPtr);
-	return true;
-
-}
-
-DimsCHW getTensorDims(ICudaEngine* engine ,const char* name)
-{
-    for (int b = 0; b < engine->getNbBindings(); b++) {
-        if( !strcmp( name, engine->getBindingName(b)) )
-            return static_cast<DimsCHW&&>(engine->getBindingDimensions(b));
-    }
-    return DimsCHW{0,0,0};
-}
-
-float* allocateMemory(DimsCHW dims, char* info)
-{
-    float* ptr;
-    size_t size;
-    cout << "Allocate memory: " << info << endl;
-    size = BATCH_SIZE * dims.c() * dims.h() * dims.w();
-    assert(!cudaMallocManaged( &ptr, size*sizeof(float)));
-
-    return ptr;
-}
-
-bool SaveEngine(const ICudaEngine* engine, const string& engine_filepath)
-{
-	cout << "~~~~~~~~Serializing model~~~~~~~~" << endl;
-
-    nvinfer1::IHostMemory* serMem = engine->serialize();
-
-	if( !serMem )
-	{
-		printf("failed to serialize CUDA engine\n");
-		return false;
-	}
-	
-    ofstream file;
-
-    file.open(engine_filepath, ios::binary | ios::out);
-
-    if(!file.is_open())
-    {
-        cout << "read create engine file" << engine_filepath <<" failed" << endl;
-        return false;
-    }
-    cout << "Printing size of bytes allocated [" << serMem->size()<< ']' << endl;
-    
-    file.write((const char*)serMem->data(), serMem->size());
-    file.close();
-    
-    serMem->destroy();
-    
-    return 1;
-
-}
-
-ICudaEngine* LoadEngine(IRuntime& runtime, const string& engine_filepath)
-{
-    ifstream file;
-    file.open(engine_filepath, ios::binary | ios::in);
-    file.seekg(0, ios::end); 
-    int length = file.tellg();         
-    file.seekg(0, ios::beg); 
-
-    shared_ptr<char> data(new char[length], default_delete<char[]>());
-    file.read(data.get(), length);
-    file.close();
-
-	initLibNvInferPlugins(&sample::gLogger.getTRTLogger(), "");
-
-    ICudaEngine* engine = runtime.deserializeCudaEngine(data.get(), length, nullptr);
-    assert(engine != nullptr);
-    
-    for (int bi = 0; bi < engine->getNbBindings(); bi++) {
-        if (engine->bindingIsInput(bi) == true) printf("Binding %d (%s): Input.\n",  bi, engine->getBindingName(bi));
-        else printf("Binding %d (%s): Output.\n", bi, engine->getBindingName(bi));
-    }
-    return engine;
-
-}
-
-vector<pair<int64_t, nvinfer1::DataType>>
-calculateBindingBufferSizes(const ICudaEngine& engine, int nbBindings, int batchSize)
-{
-    vector<pair<int64_t, nvinfer1::DataType>> sizes;
-    for (int i = 0; i < nbBindings; ++i)
-    {
-        Dims dims = engine.getBindingDimensions(i);
-        nvinfer1::DataType dtype = engine.getBindingDataType(i);
-
-        int64_t eltCount = samplesCommon::volume(dims) * batchSize;
-        sizes.push_back(make_pair(eltCount, dtype));
-    }
-
-    return sizes;
-}
-
-
-void doInference(IExecutionContext& context, float* inputData, float* detectionOut, int* keepCount, int batchSize)
-{
-    const ICudaEngine& engine = context.getEngine();
-    // Input and output buffer pointers that we pass to the engine - the engine requires exactly IEngine::getNbBindings(),
-    // of these, but in this case we know that there is exactly 1 input and 2 output.
-    int nbBindings = engine.getNbBindings();
-
-    vector<void*> buffers(nbBindings);
-    vector<pair<int64_t, nvinfer1::DataType>> buffersSizes = calculateBindingBufferSizes(engine, nbBindings, batchSize);
-
-    for (int i = 0; i < nbBindings; ++i)
-    {
-        auto bufferSizesOutput = buffersSizes[i];
-        buffers[i] = samplesCommon::safeCudaMalloc(bufferSizesOutput.first * samplesCommon::getElementSize(bufferSizesOutput.second));
-    }
-
-    // In order to bind the buffers, we need to know the names of the input and output tensors.
-    // Note that indices are guaranteed to be less than IEngine::getNbBindings().
-    int inputIndex = engine.getBindingIndex(INPUT_BLOB_NAME),
-        outputIndex0 = engine.getBindingIndex(OUTPUT_BLOB_NAME),
-        outputIndex1 = outputIndex0 + 1; //engine.getBindingIndex(OUTPUT_BLOB_NAME1);
-
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
-
-    // DMA the input to the GPU,  execute the batch asynchronously, and DMA it back:
-    cudaMemcpyAsync(buffers[inputIndex], inputData, batchSize * INPUT_C * INPUT_H * INPUT_W * sizeof(float), cudaMemcpyHostToDevice, stream);
-
-    auto t_start = chrono::high_resolution_clock::now();
-    context.execute(batchSize, &buffers[0]);
-    auto t_end = chrono::high_resolution_clock::now();
-    float total = chrono::duration<float, milli>(t_end - t_start).count();
-
-    cout << "Time taken for inference is " << total << " ms." << endl;
-
-    for (int bindingIdx = 0; bindingIdx < nbBindings; ++bindingIdx)
-    {
-        if (engine.bindingIsInput(bindingIdx))
-            continue;
-        auto bufferSizesOutput = buffersSizes[bindingIdx];
-    }
-
-    cudaMemcpyAsync(detectionOut, buffers[outputIndex0], batchSize * detectionOutputParam.keepTopK * 7 * sizeof(float), cudaMemcpyDeviceToHost, stream);
-    cudaMemcpyAsync(keepCount, buffers[outputIndex1], batchSize * sizeof(float), cudaMemcpyDeviceToHost, stream);
-    cudaStreamSynchronize(stream);
-
-    // Release the stream and the buffers
-    cudaStreamDestroy(stream);
-    cudaFree(buffers[inputIndex]);
-    cudaFree(buffers[outputIndex0]);
-    cudaFree(buffers[outputIndex1]);
-}
-
-ICudaEngine* uffToTRTModel ( const char* uffmodel)
-{
-
-	IBuilder* builder = createInferBuilder(gLogger);
-	INetworkDefinition* network = builder->createNetwork();
-	
-	initLibNvInferPlugins(&sample::gLogger.getTRTLogger(), "");
-	IUffParser* parser = createUffParser();
-	
-	parser->registerInput("Input", DimsCHW(3, 300, 300), UffInputOrder::kNCHW);
-	parser->registerOutput("MarkOutput_0");
-	
-	parser->parse(uffmodel, *network, nvinfer1::DataType::kFLOAT);
-	
-	builder->setMaxBatchSize(1);
-	builder->setMaxWorkspaceSize(1 << 26);
-
-	builder->setFp16Mode(builder->platformHasFastFp16());
-	
-	ICudaEngine* engine = builder->buildCudaEngine(*network);
-    assert(engine);
-
-	network->destroy();
- 	parser->destroy();
-	builder->destroy();
-    
-	return engine;
-}
-
+	DetectionOutputParameters detectionOutputParam{true, false, 
+												   0, OUTPUT_CLS_SIZE,
+												   100, 100, 0.5, 0.6,
+												   CodeTypeSSD::TF_CENTER, 
+												   {0, 2, 1}, true, true};
+												   
 int main(int argc, char** argv)
 {
+	TensorNet network(N,
+					  INPUT_C,
+					  INPUT_H,
+					  INPUT_W,
+					  OUTPUT_CLS_SIZE,
+					  INPUT_BLOB_NAME,
+					  OUTPUT_BLOB_NAME);
+ 
 	#if UNLOAD_MODEL == 1
 		const char* uffmodel = "/home/jetson-tx2/buildOpenCVTX2/Examples/tensorflow-coco/ssd_inception_v2_coco_2017_11_17/sample_ssd_relu6.uff";
 		const char* engine_filepath = "/home/jetson-tx2/buildOpenCVTX2/Examples/tensorflow-coco/ssd_inception_v2_coco_2017_11_17/sample_ssd_relu6.engine";
 		
-		ICudaEngine* engine = uffToTRTModel(uffmodel);
-		SaveEngine(engine, engine_filepath);
+		network.uffToTRTModel(uffmodel);
+		network.SaveEngine(engine_filepath);
 		
-		engine->destroy();
 	#else
 		vector<string> classes = {};
 		string label_map = "/home/jetson-tx2/buildOpenCVTX2/Examples/tensorflow-coco/ssd_coco_labels.txt";
@@ -284,21 +66,16 @@ int main(int argc, char** argv)
 		
 		getClasses(label_map, classes);
 			
-		nvinfer1::IRuntime* infer = createInferRuntime(gLogger);  
-
-		ICudaEngine* engine = LoadEngine(*infer, engine_filepath); 
-
-		IExecutionContext *context = engine->createExecutionContext();
-		assert(context != nullptr);
+		network.LoadEngine(engine_filepath); 
 		
-		DimsCHW dimsData = getTensorDims(engine, INPUT_BLOB_NAME);
-		DimsCHW dimsOut  = getTensorDims(engine, OUTPUT_BLOB_NAME);
+		DimsCHW dimsData = network.getTensorDims(INPUT_BLOB_NAME);
+		DimsCHW dimsOut  = network.getTensorDims(OUTPUT_BLOB_NAME);
 
 		cout << "INPUT Tensor Shape is: C: "  <<dimsData.c()<< "  H: "<<dimsData.h()<<"  W:  "<<dimsData.w()<< endl;
 		cout << "OUTPUT Tensor Shape is: C: "<<dimsOut.c()<<"  H: "<< dimsOut.h()<<"  W: "<<dimsOut.w()<< endl;
 
-		float* data    = allocateMemory( dimsData , (char*)"Input");
-		float* output  = allocateMemory( dimsOut  , (char*)"NMS");
+		float* data    = network.allocateMemory( dimsData , (char*)"Input");
+		float* output  = network.allocateMemory( dimsOut  , (char*)"NMS");
 		
 		//frame = imread("/home/jetson-tx2/tensorrt/samples/briKuJEOCDc.jpg" , IMREAD_COLOR);
 		Mat frame;
@@ -332,7 +109,7 @@ int main(int argc, char** argv)
 			vector<float> detectionOut(N * detectionOutputParam.keepTopK * 7);
 			vector<int> keepCount(N);
 			
-			doInference(*context, &data[0], &detectionOut[0], &keepCount[0], N);
+			network.doInference(&detectionOutputParam, &data[0], &detectionOut[0], &keepCount[0], N);
 			cout<<"//--------~---------//"<<endl;
 			for (int p = 0; p < N; ++p)
 			{
@@ -372,9 +149,6 @@ int main(int argc, char** argv)
 				}
 			waitKey(1);
 		}
-		
-		engine->destroy();
-		infer->destroy();
 	#endif
     return 0;
 }
