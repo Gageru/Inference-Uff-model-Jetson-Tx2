@@ -15,7 +15,6 @@ int N = 1,
     INPUT_H = 300,
     INPUT_W = 300;
 				
-
 char* OUTPUT1 = "mbox_conf_softmax";
 char* OUTPUT2 = "";
 char* OUTPUT3 = "";
@@ -61,8 +60,8 @@ int main(int argc, char** argv)
 		cout << "INPUT Tensor Shape is: C: "  <<dimsData.c()<< "  H: "<<dimsData.h()<<"  W:  "<<dimsData.w()<< endl;
 		cout << "OUTPUT Tensor Shape is: C: "<<dimsOut.c()<<"  H: "<< dimsOut.h()<<"  W: "<<dimsOut.w()<< endl;
 
-		float* data    = network.allocateMemory( dimsData , (char*)"Input");
-		float* output  = network.allocateMemory( dimsOut  , (char*)"NMS");
+		//float* data    = network.allocateMemory( dimsData , (char*)"Input");
+		//float* output  = network.allocateMemory( dimsOut  , (char*)"NMS");
 		
 		//frame = imread("/home/jetson-tx2/tensorrt/samples/briKuJEOCDc.jpg" , IMREAD_COLOR);
 		Mat frame;

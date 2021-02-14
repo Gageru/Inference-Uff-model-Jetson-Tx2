@@ -23,6 +23,17 @@ void Profiler::printLayerTimes(const int TIMING_ITERATIONS)
 	printf("Time over all layers: %4.3f\n", totalTime / TIMING_ITERATIONS);
 }
 
+//!~~~~~~~~~~~~~!//	
+//!	Maine class 
+//!~~~~~~~~~~~~~!//	
+
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//
+//! Initiating an object with input parameters:
+//!	n - batch size, input_c - number of color channels of the frame,
+//!	input_h - frame height, input_w - frame width
+//! input_blob_name - the name of the input network layer
+//! output_blob_name - the name of the output network layer
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//
 TensorNet::TensorNet(int n,
 					 int input_c,
 					 int input_h,
@@ -44,6 +55,9 @@ TensorNet::TensorNet(int n,
 	IExecutionContext *context = nullptr;
 }
 
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//
+//! We destroy all the periphery of the engine
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//
 TensorNet::~TensorNet()
 {
 	std::cout << "Destroy network:\n";
@@ -65,6 +79,10 @@ TensorNet::~TensorNet()
 		context->destroy();
 }
 
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//
+//! Allocates memory that will be automatically 
+//! managed by the Unified Memory system.
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//
 float* TensorNet::allocateMemory(nvinfer1::DimsCHW dims, char* info)
 {
     float* ptr;
@@ -76,6 +94,9 @@ float* TensorNet::allocateMemory(nvinfer1::DimsCHW dims, char* info)
     return ptr;
 }
 
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//
+//! Converts Uff model to optimized engine
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//
 void TensorNet::uffToTRTModel ( const char* uffmodel)
 {
 
@@ -103,6 +124,9 @@ void TensorNet::uffToTRTModel ( const char* uffmodel)
 	builder->destroy();
 }
 
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//
+//! Linking to input and output layers
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//
 DimsCHW TensorNet::getTensorDims(const char* name)
 {
     for (int b = 0; b < engine->getNbBindings(); b++) {
@@ -112,6 +136,10 @@ DimsCHW TensorNet::getTensorDims(const char* name)
     return DimsCHW{0,0,0};
 }
 
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//
+//! Allocates the required 
+//! amount of memory for the host
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//
 inline bool TensorNet::cudaAllocMapped( void** cpuPtr, void** gpuPtr, size_t size )
 {
 	if( !cpuPtr || !gpuPtr || size == 0 )

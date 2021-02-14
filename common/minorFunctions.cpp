@@ -2,10 +2,10 @@
 
 namespace minorapi
 {	
-//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//		
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//		
 //! Provides the correct flags to initialize the Jetson 
 //! camera csi: configures width, height, and frame rate.	
-//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//	
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//	
 	std::string get_tegra_pipeline(int width, int height, int fps) {
 	   return "nvarguscamerasrc ! video/x-raw(memory:NVMM), width=(int)" + std::to_string(width) + ", height=(int)" +
 			  std::to_string(height) + ", format=(string)NV12, framerate=(fraction)" + std::to_string(fps) +
@@ -51,9 +51,9 @@ namespace minorapi
 		}
 	}
 
-//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//	
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//	
 //! Draws all necessary objects on the frame
-//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//	
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//	
 	void drawPred(std::vector<std::string>& classes, float classId, float conf, 
 													 int left, int top, 
 													 int right, int bottom, 
@@ -72,10 +72,10 @@ namespace minorapi
 		cv::putText(frame, label, cv::Point(left, top), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar());
 	}
 	
-//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//
 //! Converts Mat object to vector<float> with subtracting 
 //! the average value over the RGB channels of the captured frame	
-//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//
 	bool loadImageBGR(cv::Mat frame, std::vector<float> &data, const float3& mean )
 	{
 		const uint32_t imgWidth  = 300;
@@ -103,7 +103,10 @@ namespace minorapi
 		
 	return true;
 	}
-	
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//	
+//! FPS calculation - everything is simple 
+//! ... not sure which is correct
+//!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!//	
 	Timer::Timer()
 		:fps(0), count(0), tick(0) 
 	{
