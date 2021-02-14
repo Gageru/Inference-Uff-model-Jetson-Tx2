@@ -13,9 +13,10 @@ If you are looking to optimize Cnn performance through Tensorrt (C ++ API) on Je
 
 ### RUN
 1. Place the supplied folders in ```/usr/src/tensorrt/samples```.
-2. Replace Makefile and Makefile.config respectively.
-3. Run ```/inferUffModel$ make```. 
-4. You must first have a .uff network model. Use the converter
+2. Replace items with ```common```
+3. Replace Makefile and Makefile.config respectively.
+4. Run ```/inferUffModel$ make```. 
+5. You must first have a .uff network model. Use the converter
 ```
 python3 /usr/lib/python3.6/dist-packages/uff/bin/convert_to_uff.py \
   /frozen_inference_graph.pb -O NMS \
